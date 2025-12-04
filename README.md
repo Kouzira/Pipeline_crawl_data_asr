@@ -37,5 +37,5 @@ simple_audio_bot/
 │   ├── crawler.py           # Logic tìm kiếm, lấy Cookies và Tải video
 │   └── audio_processor.py   # Logic cắt file âm thanh (Chunking)
 │
-├── data/                    # (Tự tạo) Chứa file lịch sử và cookies tạm
-└── output/                  # (Tự tạo) Chứa file âm thanh thành phẩm
+├── data/                    # Chứa file lịch sử và cookies tạm
+└── output/                  # Chứa file âm thanh thành phẩm

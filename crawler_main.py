@@ -11,7 +11,7 @@ KEYWORDS = ["Tin tức VTV24", "Podcast tiếng Việt"]
 def job():
     print("\n[CRAWLER] --- BẮT ĐẦU CHU KỲ TẢI MỚI ---")
     
-    # 1. Chờ Redis khởi động (Quan trọng vì YouTubeCrawler sẽ kết nối Redis ngay khi init)
+    # 1. Chờ Redis khởi động
     print("[CRAWLER] Đang chờ Redis/Database sẵn sàng...")
     time.sleep(5) 
     

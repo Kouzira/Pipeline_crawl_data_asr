@@ -16,16 +16,17 @@ class DatabaseManager:
                 video_id TEXT PRIMARY KEY,
                 title TEXT,
                 url TEXT,
-                duration INTEGER,
-                downloaded_at DATETIME,
-                status TEXT
+                downloaded_at DATETIME
             )
         ''')
+        # Thêm cột transcript, duration
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS chunks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 video_id TEXT,
                 file_path TEXT,
+                duration REAL, 
+                transcript TEXT, 
                 created_at DATETIME,
                 FOREIGN KEY(video_id) REFERENCES videos(video_id)
             )
@@ -38,24 +39,20 @@ class DatabaseManager:
 
     def add_video(self, video_id, title, url):
         try:
-            self.cursor.execute('''
-                INSERT INTO videos (video_id, title, url, downloaded_at, status)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (video_id, title, url, datetime.now(), "DOWNLOADED"))
+            self.cursor.execute('INSERT INTO videos VALUES (?, ?, ?, ?)', 
+                                (video_id, title, url, datetime.now()))
             self.conn.commit()
-            print(f"[DB] Đã lưu video: {title}")
         except sqlite3.IntegrityError:
             pass
 
-    def add_chunks(self, video_id, chunk_paths):
-        data = [(video_id, path, datetime.now()) for path in chunk_paths]
+    def add_chunks(self, video_id, chunks_data):
+        # chunks_data là list các dict: [{'path':..., 'duration':...}]
+        data = [(video_id, c['path'], c['duration'], datetime.now()) for c in chunks_data]
         self.cursor.executemany('''
-            INSERT INTO chunks (video_id, file_path, created_at)
-            VALUES (?, ?, ?)
+            INSERT INTO chunks (video_id, file_path, duration, created_at)
+            VALUES (?, ?, ?, ?)
         ''', data)
-        self.cursor.execute("UPDATE videos SET status = 'SPLITTED' WHERE video_id = ?", (video_id,))
         self.conn.commit()
-        print(f"[DB] Đã lưu {len(chunk_paths)} segments vào DB.")
 
     def close(self):
         self.conn.close()

@@ -1,65 +1,70 @@
-from pydub import AudioSegment
+import torch
+import torchaudio
 import os
+import gc
 
-class AudioSplitter:
-    def __init__(self, output_dir="/app/output/dataset"):
+class VADSplitter:
+    def __init__(self, output_dir):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
+        print("[VAD] Loading Silero VAD...")
+        self.model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
+                                           model='silero_vad',
+                                           force_reload=False,
+                                           onnx=False)
+        (self.get_speech_timestamps, _, self.read_audio, _, _) = utils
 
-    def split_smart_30s(self, file_path, target_sec=30, max_extension_sec=10, silence_thresh=-40):
+    def process_file(self, file_path, video_id, min_sec=5.0, max_sec=20.0):
         if not os.path.exists(file_path): return []
-
-        print(f"[SMART CUT] Đang xử lý: {os.path.basename(file_path)}")
+        
         try:
-            audio = AudioSegment.from_file(file_path)
+            # 1. Load Audio
+            # Silero trả về Tensor 1 chiều: [samples]
+            wav = self.read_audio(file_path, sampling_rate=16000)
+            
+            # 2. Get Timestamps
+            speech_timestamps = self.get_speech_timestamps(
+                wav, self.model, sampling_rate=16000, threshold=0.5, min_silence_duration_ms=500
+            )
+            
+            if not speech_timestamps: return []
+
+            save_folder = os.path.join(self.output_dir, video_id)
+            os.makedirs(save_folder, exist_ok=True)
+            
+            chunks_info = []
+            
+            for i, ts in enumerate(speech_timestamps):
+                # Convert sample index to seconds
+                start_sample = int(ts['start'])
+                end_sample = int(ts['end'])
+                
+                duration = (end_sample - start_sample) / 16000
+                
+                if duration >= 1.0: # Chỉ lấy đoạn > 1s
+                    filename = f"{video_id}_{i:04d}.wav"
+                    out_path = os.path.join(save_folder, filename)
+                    
+                    # --- ĐÃ SỬA LỖI TẠI ĐÂY ---
+                    # 1. Cắt trên 1 chiều (đúng bản chất dữ liệu)
+                    chunk = wav[start_sample:end_sample]
+                    
+                    # 2. Thêm lại chiều channel (unsqueeze) để torchaudio chịu lưu (thành [1, samples])
+                    chunk = chunk.unsqueeze(0)
+                    
+                    torchaudio.save(out_path, chunk, 16000)
+                    
+                    chunks_info.append({'path': out_path, 'duration': float(duration)})
+
+            # Dọn dẹp RAM
+            del wav
+            gc.collect()
+            
+            return chunks_info
+
         except Exception as e:
-            print(f"❌ Lỗi đọc audio: {e}")
+            # In thêm traceback để dễ debug nếu có lỗi khác
+            import traceback
+            traceback.print_exc()
+            print(f"[VAD Error] {e}")
             return []
-
-        target_ms = target_sec * 1000
-        max_extension_ms = max_extension_sec * 1000
-        total_len_ms = len(audio)
-        
-        start = 0
-        exported_files = []
-        
-        video_name = os.path.splitext(os.path.basename(file_path))[0]
-        save_path = os.path.join(self.output_dir, video_name)
-        os.makedirs(save_path, exist_ok=True)
-
-        chunk_index = 0
-
-        while start < total_len_ms:
-            end = start + target_ms
-            if end >= total_len_ms:
-                self._export_chunk(audio[start:], save_path, chunk_index)
-                break
-
-            actual_end = end
-            found_silence = False
-            search_limit = min(end + max_extension_ms, total_len_ms)
-            
-            # Tìm khoảng lặng để cắt
-            for check_point in range(end, search_limit, 100):
-                sample = audio[check_point : check_point + 200]
-                if sample.dBFS < silence_thresh:
-                    actual_end = check_point + 100
-                    found_silence = True
-                    break
-            
-            if not found_silence:
-                actual_end = search_limit
-
-            self._export_chunk(audio[start:actual_end], save_path, chunk_index)
-            exported_files.append(f"{save_path}/part_{chunk_index:04d}.wav")
-            
-            start = actual_end
-            chunk_index += 1
-
-        print(f"Đã cắt thành {len(exported_files)} file.")
-        return exported_files
-
-    def _export_chunk(self, chunk, folder, index):
-        if len(chunk) < 1000: return
-        filename = f"part_{index:04d}.wav"
-        chunk.export(os.path.join(folder, filename), format="wav")

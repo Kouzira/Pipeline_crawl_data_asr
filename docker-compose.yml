@@ -15,7 +15,6 @@ services:
       - ./data:/app/data
     environment:
       - TZ=Asia/Ho_Chi_Minh
-      - REDIS_HOST=redis
     depends_on:
       - redis
     restart: unless-stopped
@@ -27,9 +26,11 @@ services:
     volumes:
       - ./output:/app/output
       - ./data:/app/data
+      - ./data/torch_cache:/root/.cache/torch 
     environment:
       - TZ=Asia/Ho_Chi_Minh
       - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
     depends_on:
       - redis
     restart: unless-stopped

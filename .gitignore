@@ -1,7 +1,26 @@
+# Bỏ qua dữ liệu đầu ra (Audio)
+output/
+output/raw/
+output/dataset/
+
+# Bỏ qua Database và Cookies (Nhạy cảm)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/cookies.txt
+data/torch_cache/
+
+# Bỏ qua file tạm của Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+
+# Bỏ qua file môi trường ảo (nếu có)
+venv/
+env/
 .env
-/output/
-/data/
-!/data/.gitkeep
+
+# Bỏ qua file hệ thống
 .DS_Store
+Thumbs.db
