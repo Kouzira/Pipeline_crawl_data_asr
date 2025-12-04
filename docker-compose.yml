@@ -1,15 +1,35 @@
 version: '3.10'
 
 services:
-  audio-miner:
+  redis:
+    image: redis:alpine
+    container_name: queue_broker
+    restart: always
+
+  crawler:
     build: .
-    container_name: audio_mining_bot
+    container_name: audio_crawler
+    command: python crawler_main.py
     volumes:
-      - my_audio_storage:/app/output 
+      - ./output:/app/output
       - ./data:/app/data
     environment:
       - TZ=Asia/Ho_Chi_Minh
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
     restart: unless-stopped
 
-volumes:
-  my_audio_storage:
+  worker:
+    build: .
+    container_name: audio_processor
+    command: python worker_main.py
+    volumes:
+      - ./output:/app/output
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Ho_Chi_Minh
+      - REDIS_HOST=redis
+    depends_on:
+      - redis
+    restart: unless-stopped

@@ -1,5 +1,4 @@
-from pydub import AudioSegment # pyright: ignore[reportMissingImports]
-import math
+from pydub import AudioSegment
 import os
 
 class AudioSplitter:
@@ -7,26 +6,60 @@ class AudioSplitter:
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
 
-    def split_fixed_length(self, file_path, duration_sec=30):
+    def split_smart_30s(self, file_path, target_sec=30, max_extension_sec=10, silence_thresh=-40):
         if not os.path.exists(file_path): return []
 
-        print(f"Đang cắt file: {os.path.basename(file_path)}")
+        print(f"[SMART CUT] Đang xử lý: {os.path.basename(file_path)}")
         try:
             audio = AudioSegment.from_file(file_path)
-        except Exception:
+        except Exception as e:
+            print(f"❌ Lỗi đọc audio: {e}")
             return []
 
-        chunk_length_ms = duration_sec * 1000
-        total_chunks = math.ceil(len(audio) / chunk_length_ms)
+        target_ms = target_sec * 1000
+        max_extension_ms = max_extension_sec * 1000
+        total_len_ms = len(audio)
+        
+        start = 0
+        exported_files = []
         
         video_name = os.path.splitext(os.path.basename(file_path))[0]
         save_path = os.path.join(self.output_dir, video_name)
         os.makedirs(save_path, exist_ok=True)
 
-        for i, start_ms in enumerate(range(0, len(audio), chunk_length_ms)):
-            chunk = audio[start_ms : start_ms + chunk_length_ms]
-            output_file = os.path.join(save_path, f"part_{i:03d}.wav")
-            chunk.export(output_file, format="wav")
+        chunk_index = 0
 
-        print(f"Xong! Đã lưu {total_chunks} file tại: {save_path}")
-        return True
+        while start < total_len_ms:
+            end = start + target_ms
+            if end >= total_len_ms:
+                self._export_chunk(audio[start:], save_path, chunk_index)
+                break
+
+            actual_end = end
+            found_silence = False
+            search_limit = min(end + max_extension_ms, total_len_ms)
+            
+            # Tìm khoảng lặng để cắt
+            for check_point in range(end, search_limit, 100):
+                sample = audio[check_point : check_point + 200]
+                if sample.dBFS < silence_thresh:
+                    actual_end = check_point + 100
+                    found_silence = True
+                    break
+            
+            if not found_silence:
+                actual_end = search_limit
+
+            self._export_chunk(audio[start:actual_end], save_path, chunk_index)
+            exported_files.append(f"{save_path}/part_{chunk_index:04d}.wav")
+            
+            start = actual_end
+            chunk_index += 1
+
+        print(f"Đã cắt thành {len(exported_files)} file.")
+        return exported_files
+
+    def _export_chunk(self, chunk, folder, index):
+        if len(chunk) < 1000: return
+        filename = f"part_{index:04d}.wav"
+        chunk.export(os.path.join(folder, filename), format="wav")
