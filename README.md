@@ -1,50 +1,107 @@
 # 🎙️ ASR Data Pipeline: High-Performance Audio Mining
 
-Hệ thống thu thập và tiền xử lý dữ liệu âm thanh tự động quy mô lớn phục vụ huấn luyện mô hình AI (Speech-to-Text / ASR). 
+Hệ thống thu thập và tiền xử lý dữ liệu âm thanh tự động quy mô lớn, được tối ưu hóa để xây dựng Dataset huấn luyện mô hình AI (Speech-to-Text / ASR) như Whisper hay Wav2Vec.
 
-Dự án sử dụng kiến trúc **Producer-Consumer** với **Redis** làm trung gian, cho phép mở rộng (Scale) số lượng Worker xử lý song song, tối ưu hóa tốc độ và tài nguyên.
+Dự án sử dụng kiến trúc **Producer-Consumer** với **Redis** làm trung gian, cho phép mở rộng (Scale) dễ dàng và quản lý cấu hình động linh hoạt.
 
-## Tính năng nổi bật
+## Tính năng nổi bật (Cập nhật mới)
 
-* **Parallel Crawling (Đa luồng):** Crawler sử dụng `ThreadPoolExecutor` để tìm kiếm và tải xuống nhiều video cùng lúc, tăng tốc độ thu thập gấp nhiều lần.
-* **Smart Segmentation (VAD):** Không cắt cứng theo thời gian (30s). Sử dụng model AI **Silero VAD** (Voice Activity Detection) để cắt chính xác các đoạn có giọng nói, loại bỏ khoảng lặng và nhạc nền.
-* **RAM Optimized:** Sử dụng `torchaudio` thay thế `pydub`, xử lý Tensor trực tiếp giúp giảm 50% lượng RAM tiêu thụ, ngăn chặn lỗi tràn bộ nhớ (OOM).
-* **Scalable Architecture:** Dễ dàng tăng số lượng Worker (x2, x5, x10) chỉ bằng một lệnh Docker, tận dụng tối đa sức mạnh CPU đa nhân.
-* **Anti-Ban Strategy:** Tích hợp cơ chế giả lập User-Agent, Random Sleep và sử dụng Cookies Netscape để tránh bị YouTube chặn (HTTP 429).
-* **Standardized Output:** Dữ liệu đầu ra được chuẩn hóa tự động: **WAV, 16kHz, Mono Channel** (Chuẩn vàng cho model Whisper, Wav2Vec).
+* **Parallel Crawling:** Tải xuống đa luồng với `ThreadPoolExecutor`, tăng tốc độ thu thập dữ liệu gấp nhiều lần.
+* **Smart Monologue Merging:**
+    * Sử dụng **Silero VAD** để loại bỏ khoảng lặng.
+    * Tự động gộp các câu nói ngắn gần nhau thành một đoạn **Monologue (Độc thoại)** hoàn chỉnh để giữ ngữ cảnh (Context) cho mô hình AI.
+* **Cơ chế chịu lỗi (Fault Tolerance):**
+    * **Safe Fail:** Task lỗi không bị mất mà được chuyển vào hàng đợi riêng để debug.
+    * **Zombie Cleanup:** Tự động dọn dẹp file rác khi khởi động.
+    * **Idle Detection:** Worker tự động báo cáo khi hoàn thành hết công việc.
+* **Dynamic Configuration:** Cấu hình toàn bộ hệ thống (Từ khóa, Ngưỡng VAD, Số luồng...) qua file `.env` mà không cần sửa code.
+* **Session Stats:** Hiển thị thống kê thời gian thực về số lượng video đã tải và số task đã xử lý.
 
-## 🛠️ Công nghệ sử dụng
+## Công nghệ sử dụng
 
-* **Core Logic:** Python 3.10 (Slim Image)
-* **Message Broker:** Redis (Quản lý hàng đợi Task)
-* **Database:** SQLite (Lưu metadata, tránh trùng lặp video)
-* **Libraries:**
-    * `yt-dlp`: Tải video/audio hiệu năng cao.
-    * `torch` & `torchaudio`: Xử lý tín hiệu âm thanh.
-    * `silero-vad`: Model phát hiện giọng nói.
-    * `schedule`: Lên lịch chạy định kỳ.
+* **Core:** Python 3.10 (Slim), Docker & Docker Compose.
+* **Broker:** Redis (Quản lý Queue).
+* **Database:** SQLite (WAL Mode).
+* **AI & Audio:** `torch`, `torchaudio`, `silero-vad`, `yt-dlp`.
 
 ## Cấu trúc dự án
 
 ```text
 Pipeline_crawl_data_asr/
 │
-├── docker-compose.yml       # Điều phối Redis, Crawler và Worker
-├── Dockerfile               # Môi trường chạy (cài sẵn FFmpeg, Libsndfile)
-├── requirements.txt         # Các thư viện phụ thuộc
-├── crawler_main.py          # Entrypoint cho Crawler
-├── worker_main.py           # Entrypoint cho Worker
+├── .env                 # Cấu hình hệ thống (User chỉnh sửa tại đây)
+├── config.py            # Module nạp cấu hình
+├── docker-compose.yml   # Orchestration
+├── Dockerfile           # Environment
+├── requirements.txt     # Dependencies
+├── crawler_main.py      # Entrypoint Crawler
+├── worker_main.py       # Entrypoint Worker
 │
-├── modules/                 # Source code chính
-│   ├── crawler.py           # Logic tải đa luồng & đẩy task vào Redis
-│   ├── audio_processor.py   # Logic cắt file dùng Silero VAD & Torchaudio
-│   └── database.py          # Quản lý SQLite
+├── modules/             # Source code
+│   ├── crawler.py       # Logic tải & đẩy task
+│   ├── audio_processor.py # Logic VAD & Monologue Merge
+│   └── database.py      # Logic SQLite
 │
-├── data/                    # Thư mục dữ liệu bền vững (Persistence)
-│   ├── metadata.db          # Database (Tự tạo khi chạy)
-│   ├── cookies.txt          # File cookies (Bạn cần tự thêm vào)
-│   └── torch_cache/         # Cache model VAD (tránh tải lại mỗi lần)
-│
-└── output/                  # Dữ liệu đầu ra
-    ├── raw/                 # Audio gốc (Tự xóa sau khi xử lý xong)
-    └── dataset/             # Thành phẩm: Folder chứa các đoạn audio đã cắt
+├── data/                # Dữ liệu bền vững (DB, Cookies)
+└── output/              # Kết quả đầu ra (Dataset)
+```
+
+## Hướng dẫn chạy (Quick Start)
+
+### 1. Cấu hình
+Tạo file `.env` tại thư mục gốc (nếu chưa có) với nội dung mẫu:
+
+```ini
+TZ=Asia/Ho_Chi_Minh
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# --- CRAWLER CONFIG ---
+KEYWORDS=Tin tức VTV24,Podcast tiếng Việt,Hội thảo
+MAX_WORKERS=4           # Số luồng tải song song
+SEARCH_LIMIT=5          # Số video tải về cho mỗi từ khóa
+
+# --- AUDIO & VAD CONFIG ---
+SAMPLE_RATE=16000       # Chuẩn 16kHz cho Whisper
+VAD_THRESHOLD=0.5       # Độ nhạy (0.5 là cân bằng)
+MIN_SILENCE_MS=500      # Khoảng lặng tối thiểu (ms)
+
+# --- MONOLOGUE MERGING ---
+MONOLOGUE_MAX_PAUSE=1.5     # Gộp câu nếu nghỉ < 1.5s
+MONOLOGUE_MAX_DURATION=60.0 # Độ dài tối đa 1 file (giây)
+```
+
+### 2. Khởi chạy
+Dựng toàn bộ hệ thống bằng 1 lệnh duy nhất:
+
+```bash
+docker-compose up --build -d
+```
+
+### 3. Theo dõi & Giám sát
+
+* **Xem Crawler (Tiến độ tải & Stats):**
+  ```bash
+  docker logs -f audio_crawler
+  ```
+  *Log mẫu:* `REPORT: Total videos downloaded in this session: 15`
+
+* **Xem Worker (Tiến độ xử lý & Idle status):**
+  ```bash
+  docker logs -f worker
+  ```
+  *Log mẫu:* `[COMPLETED] Finished: Video A...` hoặc `Completed All Task!`
+
+### 4. Cập nhật cấu hình
+Khi sửa file `.env` (ví dụ đổi từ khóa), chỉ cần restart để áp dụng:
+
+```bash
+docker-compose restart crawler worker
+```
+
+## Bảo trì (Dọn dẹp ổ cứng)
+Chạy lệnh sau mỗi tuần để dọn dẹp cache build và image cũ:
+
+```bash
+docker system prune -a -f
+```
