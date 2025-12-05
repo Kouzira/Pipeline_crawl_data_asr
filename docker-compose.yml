@@ -10,11 +10,12 @@ services:
     build: .
     container_name: audio_crawler
     command: python crawler_main.py
+    env_file:
+      - .env
     volumes:
       - ./output:/app/output
       - ./data:/app/data
-    environment:
-      - TZ=Asia/Ho_Chi_Minh
+      - ./:/app
     depends_on:
       - redis
     restart: unless-stopped
@@ -23,13 +24,14 @@ services:
     build: .
     container_name: audio_processor
     command: python worker_main.py
+    env_file:
+      - .env
     volumes:
       - ./output:/app/output
       - ./data:/app/data
       - ./data/torch_cache:/root/.cache/torch 
+      - ./:/app
     environment:
-      - TZ=Asia/Ho_Chi_Minh
-      - REDIS_HOST=redis
       - PYTHONUNBUFFERED=1
     depends_on:
       - redis

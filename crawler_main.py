@@ -1,59 +1,66 @@
-import schedule
+import schedule # pyright: ignore[reportMissingImports]
 import time
 import sys
 import os
+import glob
+import logging
 from modules.crawler import YouTubeCrawler
 from modules.database import DatabaseManager
+from config import Config
 
-# Danh sách từ khóa cần tìm kiếm
-KEYWORDS = ["Tin tức VTV24", "Podcast tiếng Việt"]
+logger = logging.getLogger("Crawler_Main")
+
+def clean_zombie_files():
+    # ... (Giữ nguyên logic cũ) ...
+    logger.info("Maintenance: Scanning for zombie files...")
+    now = time.time()
+    cutoff = now - (24 * 3600)
+    files = glob.glob(os.path.join(Config.OUTPUT_RAW, "*.wav"))
+    count = 0
+    for f in files:
+        try:
+            if os.stat(f).st_mtime < cutoff:
+                os.remove(f)
+                count += 1
+        except Exception: pass
+    if count > 0: logger.info(f"Cleaned {count} zombie files.")
 
 def job():
-    print("\n[CRAWLER] --- BẮT ĐẦU CHU KỲ TẢI MỚI ---")
+    logger.info("--- STARTING CRAWL CYCLE ---")
+    clean_zombie_files()
     
-    # 1. Chờ Redis khởi động
-    print("[CRAWLER] Đang chờ Redis/Database sẵn sàng...")
-    time.sleep(5) 
-    
-    # 2. Khởi tạo Database Manager
-    # Lưu ý: Đảm bảo path này khớp với volume trong docker-compose
-    db_path = "/app/data/metadata.db"
-    db = DatabaseManager(db_path=db_path)
-    
+    db = DatabaseManager(db_path=Config.DB_PATH)
+    total_downloaded_session = 0 # Biến đếm tổng số tải được trong phiên này
+
     try:
-        # 3. Khởi tạo Crawler
-        # class YouTubeCrawler mới của bạn đã tự init Redis bên trong
-        crawler = YouTubeCrawler(db_manager=db, output_dir="/app/output/raw")
+        crawler = YouTubeCrawler(db_manager=db, output_dir=Config.OUTPUT_RAW)
         
-        # 4. Chạy vòng lặp qua từng từ khóa
-        for kw in KEYWORDS:
-            try:
-                # Gọi hàm search_and_download với limit=2 như yêu cầu
-                crawler.search_and_download(keyword=kw, limit=2)
-            except Exception as e_inner:
-                print(f"[CRAWLER] Lỗi khi xử lý từ khóa '{kw}': {e_inner}")
+        for kw in Config.KEYWORDS:
+            logger.info(f"Processing keyword: {kw}")
+            
+            # Nhận số lượng tải thành công từ hàm search_and_download
+            count = crawler.search_and_download(keyword=kw, limit=Config.SEARCH_LIMIT)
+            
+            # Cộng dồn
+            total_downloaded_session += count
                 
     except Exception as e:
-        print(f"[CRAWLER] Lỗi nghiêm trọng trong quá trình chạy Job: {e}")
+        logger.error(f"Job Critical Error: {e}", exc_info=True)
         
     finally:
-        # 5. Luôn đóng kết nối Database để tránh lỗi "Database is locked"
-        if 'db' in locals():
-            db.close()
-        print("[CRAWLER] Kết thúc chu kỳ. Ngủ đợi lần sau...")
-        # Flush stdout để log hiện ngay lập tức trong Docker
+        db.close()
+        logger.info("Cycle finished. Sleeping...")
+        
+        # In ra tổng số đã tải được (Chính xác 100% dù Worker đã xóa file hay chưa)
+        logger.info(f"REPORT: Total videos downloaded in this session: {total_downloaded_session}")
+        
         sys.stdout.flush()
 
 if __name__ == "__main__":
-    print("[SYSTEM] CRAWLER SERVICE STARTED")
-    
-    # Chạy ngay một lần khi container vừa khởi động
+    logger.info("SYSTEM STARTED - CRAWLER SERVICE")
+    time.sleep(5)
     job()
-    
-    # Lên lịch chạy vào 00:00 hàng ngày
     schedule.every().day.at("00:00").do(job)
-    
-    # Vòng lặp vô tận để giữ container sống
     while True:
         schedule.run_pending()
         time.sleep(60)

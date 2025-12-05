@@ -1,74 +1,105 @@
-import yt_dlp
+import yt_dlp # pyright: ignore[reportMissingModuleSource]
 import json
-import redis
+import redis # pyright: ignore[reportMissingImports]
 import os
-import random
-import time
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from config import Config
+
+logger = logging.getLogger("Crawler_Core")
 
 class YouTubeCrawler:
-    def __init__(self, db_manager, output_dir="/app/output/raw"):
+    def __init__(self, db_manager, output_dir=Config.OUTPUT_RAW):
         self.db = db_manager
         self.output_dir = output_dir
-        self.redis_client = redis.Redis(host='redis', port=6379, db=0)
-        self.cookie_file = "/app/data/cookies.txt"
+        self.redis_client = redis.Redis(
+            host=Config.REDIS_HOST, 
+            port=Config.REDIS_PORT, 
+            db=0
+        )
         os.makedirs(output_dir, exist_ok=True)
 
-    def search_and_download(self, keyword, limit=2):
-        print(f"[CRAWLER] Tìm: '{keyword}'...")
+    def search_and_download(self, keyword, limit=Config.SEARCH_LIMIT):
+        """
+        Trả về: (int) Số lượng video tải thành công
+        """
+        logger.info(f"Searching for: '{keyword}' (Limit: {limit})...")
 
-        ydl_opts = {
-            'format': 'bestaudio/best', # Chỉ tải audio
-            'outtmpl': f'{self.output_dir}/%(id)s.%(ext)s',
-            
-            # --- PRE-PROCESSING CHO ASR ---
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'wav',
-            }],
-            'postprocessor_args': [
-                '-ac', '1',       # Mono
-                '-ar', '16000'    # 16kHz
-            ],
-            
-            # --- ANTI-BAN ---
-            'cookiefile': self.cookie_file if os.path.exists(self.cookie_file) else None,
-            'sleep_interval': 5,
-            'max_sleep_interval': 15,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            
+        ydl_opts_search = {
             'quiet': True,
             'ignoreerrors': True,
+            'extract_flat': True,
+            'cookiefile': Config.COOKIE_FILE if os.path.exists(Config.COOKIE_FILE) else None,
             'default_search': f'ytsearch{limit}',
         }
 
+        video_list = []
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"ytsearch{limit}:{keyword}", download=True)
-                
+            with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
+                info = ydl.extract_info(f"ytsearch{limit}:{keyword}", download=False)
                 if 'entries' in info:
                     for entry in info['entries']:
-                        if not entry: continue
-                        
-                        vid = entry['id']
-                        title = entry['title']
-                        
-                        # Chỉ add task nếu chưa có trong DB
-                        if not self.db.video_exists(vid):
-                            self.db.add_video(vid, title, entry['webpage_url'])
-                            
-                            # File path sau khi ffmpeg convert sẽ là .wav
-                            final_path = f"{self.output_dir}/{vid}.wav"
-                            
-                            task = {
-                                "video_id": vid,
-                                "file_path": final_path,
-                                "title": title
-                            }
-                            self.redis_client.rpush('audio_tasks', json.dumps(task))
-                            print(f"[QUEUE] + {title}")
-                            time.sleep(random.randint(2, 5))
-                        else:
-                            print(f"[SKIP] Đã có: {title}")
-
+                        if entry and not self.db.video_exists(entry['id']):
+                            video_list.append(entry)
         except Exception as e:
-            print(f"[ERROR] {e}")
+            logger.error(f"Search error: {e}")
+            return 0 # Trả về 0 nếu lỗi tìm kiếm
+
+        if not video_list:
+            logger.info(f"No new videos found for '{keyword}'.")
+            return 0 # Trả về 0 nếu không có video mới
+
+        logger.info(f"Found {len(video_list)} new videos. Starting parallel download...")
+
+        # Biến đếm số lượng thành công
+        success_count = 0 
+
+        with ThreadPoolExecutor(max_workers=Config.MAX_WORKERS) as executor:
+            future_to_video = {
+                executor.submit(self._download_worker, video): video 
+                for video in video_list
+            }
+            
+            for future in as_completed(future_to_video):
+                try:
+                    future.result()
+                    # Nếu không văng lỗi thì tính là thành công
+                    success_count += 1
+                except Exception as exc:
+                    logger.error(f"Download task failed: {exc}")
+        
+        return success_count # Trả về tổng số tải được
+
+    def _download_worker(self, entry):
+        # ... (Phần này giữ nguyên y hệt cũ) ...
+        video_id = entry['id']
+        title = entry.get('title', 'No Title')
+        url = entry.get('url', f"https://www.youtube.com/watch?v={video_id}")
+        
+        ydl_opts_down = {
+            'format': 'bestaudio/best',
+            'outtmpl': f'{self.output_dir}/%(id)s.%(ext)s',
+            'postprocessors': [{'key': 'FFmpegExtractAudio','preferredcodec': 'wav'}],
+            'postprocessor_args': ['-ac', '1', '-ar', str(Config.SAMPLE_RATE)],
+            'cookiefile': Config.COOKIE_FILE if os.path.exists(Config.COOKIE_FILE) else None,
+            'quiet': True,
+            'no_warnings': True,
+            'sleep_interval': 1, 
+            'max_sleep_interval': 3,
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts_down) as ydl:
+                ydl.download([url])
+            
+            self.db.add_video(video_id, title, url)
+            
+            final_path = f"{self.output_dir}/{video_id}.wav"
+            task = {"video_id": video_id, "file_path": final_path, "title": title}
+            
+            self.redis_client.rpush(Config.QUEUE_NAME, json.dumps(task))
+            logger.info(f"[DONE] Downloaded & Queued: {title}")
+            
+        except Exception as e:
+            logger.error(f"[FAIL] Download worker error {title}: {e}")
+            raise e
