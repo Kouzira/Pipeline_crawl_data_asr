@@ -11,10 +11,9 @@ from config import Config
 logger = logging.getLogger("Crawler_Main")
 
 def clean_zombie_files():
-    # ... (Giữ nguyên logic cũ) ...
+    """Xóa các file .wav trong output/raw đã tồn tại quá 24h."""
     logger.info("Maintenance: Scanning for zombie files...")
-    now = time.time()
-    cutoff = now - (24 * 3600)
+    cutoff = time.time() - (24 * 3600)
     files = glob.glob(os.path.join(Config.OUTPUT_RAW, "*.wav"))
     count = 0
     for f in files:
@@ -30,18 +29,14 @@ def job():
     clean_zombie_files()
     
     db = DatabaseManager(db_path=Config.DB_PATH)
-    total_downloaded_session = 0 # Biến đếm tổng số tải được trong phiên này
+    total_downloaded_session = 0 
 
     try:
         crawler = YouTubeCrawler(db_manager=db, output_dir=Config.OUTPUT_RAW)
         
         for kw in Config.KEYWORDS:
             logger.info(f"Processing keyword: {kw}")
-            
-            # Nhận số lượng tải thành công từ hàm search_and_download
             count = crawler.search_and_download(keyword=kw, limit=Config.SEARCH_LIMIT)
-            
-            # Cộng dồn
             total_downloaded_session += count
                 
     except Exception as e:
@@ -50,10 +45,7 @@ def job():
     finally:
         db.close()
         logger.info("Cycle finished. Sleeping...")
-        
-        # In ra tổng số đã tải được (Chính xác 100% dù Worker đã xóa file hay chưa)
         logger.info(f"REPORT: Total videos downloaded in this session: {total_downloaded_session}")
-        
         sys.stdout.flush()
 
 if __name__ == "__main__":

@@ -12,8 +12,6 @@ class DatabaseManager:
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.cursor = self.conn.cursor()
-        
-        # Tối ưu hiệu suất ghi đồng thời
         self.conn.execute("PRAGMA journal_mode=WAL;")
         self.create_tables()
 
@@ -55,12 +53,11 @@ class DatabaseManager:
                                 (video_id, title, url, datetime.now()))
             self.conn.commit()
         except sqlite3.IntegrityError:
-            pass # Video đã tồn tại
+            pass
         except Exception as e:
             logger.error(f"Error adding video {video_id}: {e}")
 
     def add_chunks(self, video_id, chunks_data):
-        # chunks_data là list các dict: [{'path':..., 'duration':...}]
         try:
             data = [(video_id, c['path'], c['duration'], datetime.now()) for c in chunks_data]
             self.cursor.executemany('''
