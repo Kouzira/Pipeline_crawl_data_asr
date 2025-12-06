@@ -4,7 +4,7 @@ Hệ thống thu thập và tiền xử lý dữ liệu âm thanh tự động q
 
 Dự án sử dụng kiến trúc **Producer-Consumer** với **Redis** làm trung gian, cho phép mở rộng (Scale) dễ dàng và quản lý cấu hình động linh hoạt.
 
-## Tính năng nổi bật (Cập nhật mới)
+## Tính năng nổi bật
 
 * **Parallel Crawling:** Tải xuống đa luồng với `ThreadPoolExecutor`, tăng tốc độ thu thập dữ liệu gấp nhiều lần.
 * **Smart Monologue Merging:**
@@ -106,4 +106,5 @@ Chạy lệnh sau mỗi tuần để dọn dẹp cache build và image cũ:
 docker system prune -a -f
 
 ```
+
 
