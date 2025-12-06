@@ -1,4 +1,4 @@
-# 🎙️ ASR Data Pipeline: High-Performance Audio Mining
+#ASR Data Pipeline: High-Performance Audio Mining
 
 Hệ thống thu thập và tiền xử lý dữ liệu âm thanh tự động quy mô lớn, được tối ưu hóa để xây dựng Dataset huấn luyện mô hình AI (Speech-to-Text / ASR) như Whisper hay Wav2Vec.
 
@@ -104,4 +104,5 @@ Chạy lệnh sau mỗi tuần để dọn dẹp cache build và image cũ:
 
 ```bash
 docker system prune -a -f
+
 ```
